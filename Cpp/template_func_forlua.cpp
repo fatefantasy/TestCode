@@ -100,10 +100,31 @@ int LuaFuncCallCFunc(lua_State* L, RetType(*f)(ArgTypes...), index_sequence<Idx.
 	int _[] = {0,  (Cnt+=(FUpdateParam<ArgTypes>::Update(L, Idx+1, get<Idx>(params))))...};
 	return Cnt;
 }
+// 
+template<typename RetType, typename... ArgTypes, size_t... Idx>
+int LuaFuncCallCFunc(lua_State* L, std::function<RetType(ArgTypes...)> f, index_sequence<Idx...> idxs)
+{
+	// std::function 形式的参数: 内容同上;
+	tuple<typename TReadLuaType<ArgTypes>::type_cr...> params 
+		= make_tuple(Read<typename TReadLuaType<ArgTypes>::type_cr>(L, Idx+1)...);
+	RetType ret = f(get<Idx>(params)...);
+	Push<RetType>(L, ret);
+	int Cnt = 1;
+	int _[] = {0,  (Cnt+=(FUpdateParam<ArgTypes>::Update(L, Idx+1, get<Idx>(params))))...};
+	return Cnt;
+}
 	
 // 
 template<typename RetType, typename... ArgTypes>
 LuaFunction CovertToLuaFunc(RetType(*f)(ArgTypes...))
+{
+	return [=](lua_State* L)
+	{
+		return LuaFuncCallCFunc(L, f, make_index_sequence<sizeof...(ArgTypes)>{});
+	};
+}
+template<typename RetType, typename... ArgTypes>
+LuaFunction CovertToLuaFunc(std::function<RetType(ArgTypes...)> f)
 {
 	return [=](lua_State* L)
 	{
@@ -184,6 +205,38 @@ int main()
 											// 	  FUpdateParam: donot update: const T&
 	cout<<"fb ret: "<<b<<endl;				// >> fb ret: 2
 											// TODO: <const T>类型还是丢了const...
+
+
+	cout<<"---- ---- ---- ---- lambda:"<<endl;
+	std::function<int(int, int)> l = 
+		[](int i, int j)
+		{
+			cout<<"lambda i: "<<i<<endl;
+			cout<<"lambda j: "<<j<<endl;
+			return 33;
+		};
+	auto fl = CovertToLuaFunc(l);
+	fl(L);
+	/** 直接传递lambda编译错误:
+	 * 	no matching function for call to ‘CovertToLuaFunc(main()::<lambda(int, int)>)’
+	auto fl1 = CovertToLuaFunc(
+		[](int i, int j)
+		{
+			cout<<"lambda i: "<<i<<endl;
+			cout<<"lambda j: "<<j<<endl;
+			return 33;
+		});
+	/**/
+	/** 直接传递lambda编译错误: 添加类型说明 (vs可以识别编译通过, 但gcc还是错误)
+	 * 	error: no matching function for call to ‘CovertToLuaFunc<int, int, int>(main()::<lambda(int, int)>)’
+	auto fl1 = CovertToLuaFunc<int, int, int>(
+		[](int i, int j)
+		{
+			cout<<"lambda i: "<<i<<endl;
+			cout<<"lambda j: "<<j<<endl;
+			return 33;
+		});
+	/**/
 
 	return 0;
 }
